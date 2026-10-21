@@ -1,2 +1,4 @@
 dukascopy-python
 pandas
+matplotlib
+mplfinance
