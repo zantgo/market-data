@@ -36,5 +36,6 @@ The default is 365 days.
 On Ubuntu or WSL, install virtual environment support if necessary:
 
 sudo apt update
+
 sudo apt install -y python3-venv
 
