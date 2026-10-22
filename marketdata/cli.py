@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -48,9 +49,12 @@ Examples:
   python main.py --symbol gold --days 365 --timeframe 1h --chart
   python main.py --symbol EURUSD --months 6 --timeframe 15m --no-chart
   python main.py --symbol BTC --years 2 --timeframe 1d --chart --candles 500
+  python main.py --symbol gold --start 2025-01-01 --end 2025-12-31 --timeframe 1m --chart
   python main.py --list-instruments
   python main.py --list-timeframes
 """
+
+DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +95,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--years",
         type=int,
         help="Number of years of history to download.",
+    )
+    parser.add_argument(
+        "--start",
+        help=(
+            "First UTC date of an explicit window, e.g. 2025-01-01. "
+            "Use together with --end instead of --days/--months/--years."
+        ),
+    )
+    parser.add_argument(
+        "--end",
+        help=(
+            "Last UTC date of an explicit window, e.g. 2025-12-31. "
+            "A date without a time covers the whole day."
+        ),
     )
     parser.add_argument(
         "-t",
@@ -296,6 +314,65 @@ def _resolve_chart_flag(args: argparse.Namespace) -> bool:
     return prompt_yes_no("Generate a candlestick chart?")
 
 
+def _parse_window_boundary(value: str, option: str) -> tuple[pd.Timestamp, bool]:
+    """Parse a ``--start`` or ``--end`` value into a UTC timestamp."""
+    text = str(value).strip()
+
+    try:
+        stamp = pd.Timestamp(text)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Could not parse {option} value {value!r}. "
+            "Use an ISO date such as 2025-01-01."
+        ) from error
+
+    if pd.isna(stamp):
+        raise ValueError(
+            f"Could not parse {option} value {value!r}. "
+            "Use an ISO date such as 2025-01-01."
+        )
+
+    if stamp.tzinfo is None:
+        stamp = stamp.tz_localize("UTC")
+    else:
+        stamp = stamp.tz_convert("UTC")
+
+    return stamp, bool(DATE_ONLY_PATTERN.fullmatch(text))
+
+
+def _explicit_window(
+    args: argparse.Namespace,
+    timeframe: Timeframe,
+) -> tuple[pd.Timestamp, pd.Timestamp, str]:
+    """Return an explicit start/end window and the label for file names."""
+    if not args.start or not args.end:
+        raise ValueError("Use --start and --end together.")
+
+    if any(value is not None for value in (args.days, args.months, args.years)):
+        raise ValueError(
+            "--start/--end cannot be combined with --days, --months or --years."
+        )
+
+    start, _ = _parse_window_boundary(args.start, "--start")
+    end, end_is_date = _parse_window_boundary(args.end, "--end")
+
+    # A date without a time covers the whole day, so the window ends at the
+    # midnight that follows it. The download end is always exclusive.
+    if end_is_date:
+        end += pd.Timedelta(days=1)
+
+    start = timeframe.floor(start)
+    end = timeframe.floor(end)
+
+    if start >= end:
+        raise ValueError("The end of the window must be after its start.")
+
+    last_candle_day = end - pd.Timedelta(microseconds=1)
+    label = f"{start:%Y-%m-%d}_{last_candle_day:%Y-%m-%d}"
+
+    return start, end, label
+
+
 def _last_closed_candle(timeframe: Timeframe) -> pd.Timestamp:
     """Return the start of the most recent closed candle.
 
@@ -308,19 +385,29 @@ def _last_closed_candle(timeframe: Timeframe) -> pd.Timestamp:
 def run(args: argparse.Namespace) -> int:
     """Run the download and chart workflow."""
     instrument = _resolve_instrument(args)
-    period = _resolve_period(args)
     timeframe = _resolve_timeframe(args)
     chart_requested = _resolve_chart_flag(args)
 
-    end = _last_closed_candle(timeframe)
+    if args.start or args.end:
+        start, end, file_label = _explicit_window(args, timeframe)
+        period_description = (
+            f"explicit window ({start:%Y-%m-%d} to "
+            f"{(end - pd.Timedelta(microseconds=1)):%Y-%m-%d})"
+        )
+    else:
+        period = _resolve_period(args)
+        end = _last_closed_candle(timeframe)
 
-    # The window starts on a candle boundary, so the first candle is the one
-    # that contains the requested start. Without this the weekly and monthly
-    # timeframes could end up without a single complete candle.
-    start = timeframe.floor(period.start_from(end))
+        # The window starts on a candle boundary, so the first candle is the
+        # one that contains the requested start. Without this the weekly and
+        # monthly timeframes could end up without a single complete candle.
+        start = timeframe.floor(period.start_from(end))
 
-    if start >= end:
-        raise ValueError("The period must be greater than zero.")
+        if start >= end:
+            raise ValueError("The period must be greater than zero.")
+
+        file_label = period.file_label
+        period_description = period.describe()
 
     moving_averages = parse_moving_averages(args.mas)
 
@@ -331,7 +418,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"Instrument:      {instrument.describe()}")
         print(f"Category:        {instrument.category_label}")
         print(f"Timeframe:       {timeframe.code} ({timeframe.source_note})")
-        print(f"Period:          {period.describe()}")
+        print(f"Period:          {period_description}")
         print(f"Start:           {start:%Y-%m-%d %H:%M} UTC")
         print(f"End (exclusive): {end:%Y-%m-%d %H:%M} UTC")
         print("Price side:      BID")
@@ -368,12 +455,14 @@ def run(args: argparse.Namespace) -> int:
 
     csv_path = write_csv(
         frame,
-        args.data_dir / f"{instrument.slug}_{timeframe.file_code}_{period.file_label}.csv",
+        args.data_dir / f"{instrument.slug}_{timeframe.file_code}_{file_label}.csv",
     )
 
     chart_path = None
 
     if chart_requested:
+        plotted = frame.tail(args.candles)
+
         chart_path = charts.render_candlestick_chart(
             frame,
             output_path=(
@@ -381,9 +470,10 @@ def run(args: argparse.Namespace) -> int:
                 / f"{instrument.slug}_{timeframe.file_code}_{args.candles}_candles.png"
             ),
             title=(
-                f"{instrument.display_name} | {timeframe.code} candles\n"
-                f"{frame.index[0]:%Y-%m-%d %H:%M} to "
-                f"{frame.index[-1]:%Y-%m-%d %H:%M} UTC"
+                f"{instrument.display_name} | {timeframe.code} candles "
+                f"(last {len(plotted):,})\n"
+                f"{plotted.index[0]:%Y-%m-%d %H:%M} to "
+                f"{plotted.index[-1]:%Y-%m-%d %H:%M} UTC"
             ),
             candle_count=args.candles,
             moving_averages=moving_averages,

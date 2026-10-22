@@ -17,7 +17,8 @@ argument so the tool can run unattended.
 - **Only natively published candles are downloaded.** No candle is ever
   aggregated, resampled or synthesised, so every row in the CSV is exactly
   what Dukascopy published for that interval.
-- History window expressed in days, months or years (365 days by default).
+- History window expressed in days, months or years (365 days by default), or
+  as an explicit start and end date.
 - Strict UTC: every timestamp is stored with an explicit `+00:00` offset and
   the download window ends on a closed candle boundary, so no partial candle
   is ever stored.
@@ -79,6 +80,7 @@ Every prompt can be skipped, which is useful for scripts and cron jobs:
 python main.py --symbol gold --days 365 --timeframe 1h --chart
 python main.py --symbol EURUSD --months 6 --timeframe 15m --no-chart
 python main.py --symbol BTC --years 2 --timeframe 1d --chart --candles 500
+python main.py --symbol gold --start 2025-01-01 --end 2025-12-31 --timeframe 1m --chart
 ```
 
 | Argument | Description |
@@ -87,6 +89,8 @@ python main.py --symbol BTC --years 2 --timeframe 1d --chart --candles 500
 | `-d`, `--days` | Number of days of history. |
 | `-M`, `--months` | Number of months of history. |
 | `-Y`, `--years` | Number of years of history. |
+| `--start` | First UTC date of an explicit window, e.g. `2025-01-01`. |
+| `--end` | Last UTC date of an explicit window, e.g. `2025-12-31`. A date without a time covers the whole day. |
 | `-t`, `--timeframe` | Candle timeframe, e.g. `1m`, `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, `1w`. |
 | `--chart` / `--no-chart` | Force the chart on or off. |
 | `--candles` | Number of candles to plot (default `1000`). |
