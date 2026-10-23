@@ -173,8 +173,8 @@ Files are written to `data/`:
 - `data/<SYMBOL>_<TIMEFRAME>_<PERIOD>.csv` — OHLCV candles with a UTC
   `Date` column in ISO 8601 format and `Open`, `High`, `Low`, `Close`,
   `Volume` columns.
-- `data/<SYMBOL>_<TIMEFRAME>_<CANDLES>_candles.png` — candlestick chart with
-  a volume panel and moving averages.
+- `data/<SYMBOL>_<TIMEFRAME>_<PERIOD>_<CANDLES>_candles.png` — candlestick
+  chart with a volume panel and moving averages.
 
 Downloads are cached per month in `cache/`, so a repeated run only fetches
 what is missing. Every cached chunk stores the range it covers. When the

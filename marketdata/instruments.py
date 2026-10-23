@@ -161,6 +161,9 @@ SYMBOL_ALIASES = {
     "NASDAQ100": "E_NQ-100",
     "BTCUSD": "BTC/USD",
     "ETHUSD": "ETH/USD",
+    "OILUSD": "E_Light",
+    "WTIUSD": "E_Light",
+    "CRUDEOILUSD": "E_Light",
 }
 
 _COMPACT = re.compile(r"[^0-9A-Z]+")

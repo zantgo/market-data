@@ -467,7 +467,10 @@ def run(args: argparse.Namespace) -> int:
             frame,
             output_path=(
                 args.data_dir
-                / f"{instrument.slug}_{timeframe.file_code}_{args.candles}_candles.png"
+                / (
+                    f"{instrument.slug}_{timeframe.file_code}_{file_label}_"
+                    f"{args.candles}_candles.png"
+                )
             ),
             title=(
                 f"{instrument.display_name} | {timeframe.code} candles "
